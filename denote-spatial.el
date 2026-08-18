@@ -10,7 +10,6 @@
 ;; denote-spatial.el turns a denote directory into a
 ;; draggable, resizeable spatial canvas of images, pdfs, videos, and notes opened in your browser.
 ;;
-;;
 ;; The only external dependency is `python3'.
 ;;
 ;; Setup:
@@ -50,11 +49,17 @@ prompting once and remembering it for the session."
 (defvar denote-spatial--process nil
   "The running denote-spatial server process, if any.")
 
+(defvar denote-spatial--dir
+  (file-name-directory
+   (or load-file-name
+       (and byte-compile-current-file (bound-and-true-p byte-compile-current-file))
+       (buffer-file-name)))
+  "Directory where `denote-spatial.el' lives (captured at load time).")
+
 (defun denote-spatial--package-directory ()
   "Directory this file (and its bundled server.py/index.html) lives in."
-  (file-name-directory
-   (or load-file-name buffer-file-name
-       (locate-library "denote-spatial"))))
+  (or denote-spatial--dir
+      (file-name-directory (locate-library "denote-spatial"))))
 
 (defun denote-spatial--server-script ()
   "Path to the bundled server.py."
