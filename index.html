@@ -1,0 +1,795 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>denote-spatial</title>
+<style>
+  :root{
+    --bg:#ffffff; --card:#ffffff; --ink:#1a1a1a; --sub:#757065;
+    --accent:#000080; --border:#000000; --topbar-bg:rgba(255,255,255,.92);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    overflow:hidden;
+  }
+  #topbar{
+    position:fixed; top:0; left:0; right:0; height:44px;
+    display:flex; align-items:center; gap:10px; padding:0 16px;
+    background:var(--topbar-bg); backdrop-filter:blur(6px);
+    border-bottom:2px solid var(--border); z-index:1000; font-size:13px;
+  }
+  #topbar b{font-weight:600}
+  #topbar span{color:var(--sub)}
+  #topbar button, #topbar input{
+    border:2px solid var(--border); background:var(--card); color:var(--ink);
+    padding:5px 10px; border-radius:6px; font-size:12px;
+  }
+  #topbar button{cursor:pointer}
+  #topbar input{outline:none; width:160px}
+  #topbar input:focus{border-color:var(--accent)}
+  #topbar button:hover{border-color:var(--accent); color:var(--accent)}
+  #topbar button.active{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .glabel{
+    position:absolute; font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--accent); font-weight:600;
+  }
+  #canvas{
+    position:absolute; top:44px; left:0; width:2000px; height:2000px;
+    will-change: transform;
+    transition: transform 0.25s ease-out;
+  }
+  #canvas.panning{
+    transition: none;
+  }
+  #viewport{position:fixed; top:44px; left:0; right:0; bottom:0; overflow:hidden; cursor:grab}
+  #viewport.grabbing{cursor:grabbing}
+  .card{
+    position:absolute; background:var(--card); border:2px solid var(--border);
+    border-radius:8px; overflow:hidden;
+    cursor:move; user-select:none;
+  }
+  .card:hover{border-color:var(--accent); z-index:500}
+  .card.related{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset}
+  .card.dragging{z-index:999; border-color:var(--accent)}
+  .card.selected{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent); z-index:600}
+  .card img, .card video{
+    width:100%; height:calc(100% - 28px); object-fit:cover; display:block; pointer-events:none;
+  }
+  .card object{
+    width:100%; height:calc(100% - 28px); display:block; border:none; margin:0; padding:0; pointer-events:none;
+  }
+  .card{content-visibility:auto; contain-intrinsic-size:220px 220px}
+  .card .cap{
+    height:28px; font-size:11px; color:var(--accent); display:flex; align-items:center;
+    justify-content:space-between; padding:0 8px; border-top:2px solid var(--border);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .card.text{padding:12px; display:flex; flex-direction:column}
+  .card.text .cap{border-top:none; padding:0; margin-top: auto; flex-shrink:0}
+  .card.text .snippet{
+    font-size:12.5px; line-height:1.5; color:var(--ink);
+    overflow:hidden; flex-grow:1;
+  }
+  .resize{
+    position:absolute; right:0; bottom:0; width:14px; height:14px;
+    cursor:nwse-resize; opacity:0;
+  }
+  .card:hover .resize{opacity:.5}
+
+  .org-title{
+    font-weight:700; font-size:15px; color:var(--ink);
+    margin-bottom:6px; line-height:1.2;
+  }
+
+  a.denote-link{
+    color:var(--accent); text-decoration:none; font-weight:500;
+    border-bottom:1px dashed var(--accent); cursor:pointer;
+  }
+  a.denote-link:hover{
+    border-bottom-style:solid; background:rgba(0,0,128,0.08);
+  }
+
+  /* --- Feed Mode --- */
+  #viewport.feed-mode{
+    overflow-y:auto; cursor:default;
+  }
+  #viewport.feed-mode #canvas{
+    position:relative; top:0; left:0; width:100% !important; height:auto !important; min-height:100%;
+    transform:none !important; background:transparent;
+    display:flex; flex-direction:column; align-items:center;
+    padding:40px 16px 80px; gap:20px;
+  }
+  #viewport.feed-mode .card{
+    position:relative !important; left:auto !important; top:auto !important;
+    width:100% !important; max-width:680px !important; height:auto !important;
+    cursor:pointer; user-select:text; flex-shrink:0;
+  }
+  #viewport.feed-mode .card img, 
+  #viewport.feed-mode .card video{
+    height:auto; max-height:450px; object-fit:contain; background:#000;
+  }
+  #viewport.feed-mode .card object{
+    height:350px; width:100%;
+  }
+  #viewport.feed-mode .card.text{
+    padding:16px 20px;
+  }
+  #viewport.feed-mode .card.text .snippet{
+    height:auto; max-height:none; font-size:14px; line-height:1.6; white-space:pre-wrap;
+  }
+  #viewport.feed-mode .resize{display:none}
+
+  #empty{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    color:var(--sub); font-size:13px; text-align:center;
+  }
+  #lightbox{
+    position:fixed; inset:0; background:rgba(10,9,7,.94); z-index:2000;
+    display:none; align-items:center; justify-content:center; padding:60px;
+  }
+  #lightbox.open{display:flex}
+  #lb-inner{
+    max-width:min(1100px,90vw); max-height:88vh; background:var(--card);
+    border-radius:10px; overflow:hidden; display:flex; flex-direction:column;
+    border:2px solid var(--border); width:auto; height:auto;
+  }
+  #lb-inner img, #lb-inner video{
+    max-width:90vw; max-height:78vh; width:auto; height:auto;
+    object-fit:contain; display:block; margin:0 auto; background:#111;
+  }
+  #lb-inner object{
+    width:min(900px, 82vw); height:78vh; display:block; margin:0 auto; background:#111;
+  }
+  #lb-text{
+    padding:36px 44px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:15px; line-height:1.6; white-space:pre-wrap; max-width:680px; overflow-y:auto;
+  }
+  #lb-cap{
+    padding:12px 20px; border-top:2px solid var(--border); font-size:12px;
+    color:var(--accent); display:flex; justify-content:space-between; align-items:center;
+    font-family:-apple-system,sans-serif; flex-shrink:0;
+  }
+  #lb-close{
+    position:fixed; top:16px; right:24px; color:#fff; font-size:28px; cursor:pointer;
+    opacity:.7; z-index:2001; line-height:1;
+  }
+  #lb-close:hover{opacity:1}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <b>denote-spatial</b>
+  <span id="count"></span>
+  <input type="text" id="search" placeholder="Search / Regex..." />
+  <span style="flex:1"></span>
+  <button id="reset">reset view</button>
+  <button class="viewbtn" data-mode="chrono">grid</button>
+  <button class="viewbtn" data-mode="feed">feed</button>
+  <button class="viewbtn" data-mode="connected">cluster</button>
+  <button class="viewbtn" data-mode="keyword">keywords</button>
+  <button id="rearrange">re-arrange</button>
+  <button id="save">save layout</button>
+</div>
+<div id="viewport">
+  <div id="canvas"></div>
+</div>
+<div id="empty"></div>
+
+<div id="lightbox">
+  <span id="lb-close">&times;</span>
+  <div id="lb-inner"></div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const viewport = document.getElementById('viewport');
+let layout = {chrono:{}, feed:{}, connected:{}, keyword:{}};
+let items = [];
+let links = [];
+let mode = 'chrono';
+const cardEls = {};
+let selected = new Set();
+
+function setSelected(keys){
+  selected = new Set(keys);
+  Object.entries(cardEls).forEach(([k, el]) => el.classList.toggle('selected', selected.has(k)));
+}
+function toggleSelected(key){
+  const next = new Set(selected);
+  next.has(key) ? next.delete(key) : next.add(key);
+  setSelected(next);
+}
+
+let canvasWidth = 2000;
+let canvasHeight = 2000;
+let OFFSET_X = 1000;
+let OFFSET_Y = 1000;
+
+function keyOf(item){ return item.id + '|' + (item.src||item.title); }
+
+function parseOrgNote(text, itemTitle){
+  if(!text) return { html: '', date: '', tags: [] };
+  const lines = text.split('\n');
+  let title = itemTitle || '';
+  let tags = [];
+  let date = '';
+  const bodyLines = [];
+
+  lines.forEach(line => {
+    const match = line.match(/^#\+(\w+):\s*(.*)$/i);
+    if(match){
+      const [, key, val] = match;
+      const k = key.toLowerCase();
+      if(k === 'title') title = val.trim();
+      else if(k === 'filetags') tags = val.split(':').filter(Boolean);
+      else if(k === 'date') date = val.replace(/[\[\]]/g,'').trim();
+    } else {
+      bodyLines.push(line);
+    }
+  });
+
+  const bodyHtml = parseDenoteLinks(bodyLines.join('\n').trim());
+  const titleHtml = title ? `<div class="org-title">${escapeHtml(title)}</div>` : '';
+
+  return { html: titleHtml + bodyHtml, date, tags };
+}
+
+function parseDenoteLinks(text){
+  if(!text) return '';
+  const escaped = escapeHtml(text);
+  return escaped.replace(/\[\[denote:([0-9T]+)\]\[(.*?)\]\]/g, (match, id, title) => {
+    return `<a class="denote-link" onclick="handleDenoteLinkClick(event, '${id}')">${title}</a>`;
+  });
+}
+
+function handleDenoteLinkClick(e, targetId){
+  e.stopPropagation();
+  const targetItem = items.find(it => it.id === targetId);
+  if(targetItem){
+    openLightbox(targetItem);
+  } else {
+    document.getElementById('search').value = targetId;
+    filterCards();
+  }
+}
+
+// Pan/Zoom state initialized around centered offsets
+let pan = {x: -OFFSET_X + 100, y: -OFFSET_Y + 100, scale: 1};
+const MIN_SCALE = 0.55;
+const MAX_SCALE = 2.2;
+
+function applyPan(){
+  if(mode === 'feed') return;
+  canvas.style.transform = `translate3d(${pan.x}px,${pan.y}px,0) scale(${pan.scale})`;
+  canvas.style.transformOrigin = '0 0';
+}
+
+function ensureCanvasBounds(left, top, right, bottom){
+  const PADDING = 600;
+  
+  if(right + 300 > canvasWidth){
+    canvasWidth = right + PADDING;
+    canvas.style.width = canvasWidth + 'px';
+  }
+  if(bottom + 300 > canvasHeight){
+    canvasHeight = bottom + PADDING;
+    canvas.style.height = canvasHeight + 'px';
+  }
+  if(left < 100){
+    const shiftX = PADDING;
+    canvasWidth += shiftX;
+    canvas.style.width = canvasWidth + 'px';
+    OFFSET_X += shiftX;
+    pan.x -= shiftX * pan.scale;
+    
+    Object.values(cardEls).forEach(el => {
+      el.style.left = (el.offsetLeft + shiftX) + 'px';
+    });
+    if(layout[mode]){
+      Object.keys(layout[mode]).forEach(k => {
+        if(layout[mode][k].x !== undefined) layout[mode][k].x += shiftX;
+      });
+    }
+    applyPan();
+  }
+  if(top < 100){
+    const shiftY = PADDING;
+    canvasHeight += shiftY;
+    canvas.style.height = canvasHeight + 'px';
+    OFFSET_Y += shiftY;
+    pan.y -= shiftY * pan.scale;
+    
+    Object.values(cardEls).forEach(el => {
+      el.style.top = (el.offsetTop + shiftY) + 'px';
+    });
+    if(layout[mode]){
+      Object.keys(layout[mode]).forEach(k => {
+        if(layout[mode][k].y !== undefined) layout[mode][k].y += shiftY;
+      });
+    }
+    applyPan();
+  }
+}
+
+function adjustCanvasToFitAll(){
+  if(mode === 'feed') return;
+  let minL = OFFSET_X, minT = OFFSET_Y, maxR = OFFSET_X + 1000, maxB = OFFSET_Y + 1000;
+  
+  const els = Object.values(cardEls);
+  if(els.length > 0){
+    minL = Math.min(...els.map(e => e.offsetLeft));
+    minT = Math.min(...els.map(e => e.offsetTop));
+    maxR = Math.max(...els.map(e => e.offsetLeft + e.offsetWidth));
+    maxB = Math.max(...els.map(e => e.offsetTop + e.offsetHeight));
+  }
+
+  canvasWidth = Math.max(2000, maxR + 500);
+  canvasHeight = Math.max(2000, maxB + 500);
+  canvas.style.width = canvasWidth + 'px';
+  canvas.style.height = canvasHeight + 'px';
+}
+
+async function load(){
+  const [idx, lay] = await Promise.all([
+    fetch('/api/index').then(r=>r.json()),
+    fetch('/api/layout').then(r=>r.json())
+  ]);
+  items = idx.items; links = idx.links || [];
+  if(lay && !('chrono' in lay) && !('connected' in lay) && !('keyword' in lay) && !('feed' in lay)){
+    layout = {chrono: lay, feed:{}, connected:{}, keyword:{}};
+  } else {
+    layout = Object.assign({chrono:{}, feed:{}, connected:{}}, lay || {});
+  }
+  document.getElementById('count').textContent = items.length + ' items';
+  if(items.length === 0){
+    document.getElementById('empty').textContent = 'No items found in your denote folder yet.';
+    return;
+  }
+  render();
+  applyPan();
+}
+
+function gridPos(i, cols, w, h, gap){
+  const col = i % cols, row = Math.floor(i / cols);
+  return {x: OFFSET_X + col*(w+gap), y: OFFSET_Y + row*(h+gap), w, h};
+}
+
+function computeChrono(){
+  const sorted = [...items].sort((a,b) => b.id.localeCompare(a.id));
+  const pos = {};
+  sorted.forEach((item, i) => { pos[keyOf(item)] = gridPos(i, 6, 220, 220, 20); });
+  return pos;
+}
+
+function computeConnected(){
+  const parent = {};
+  function find(x){
+    if(!(x in parent)) parent[x] = x;
+    while(parent[x] !== x){ parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  }
+  function union(a,b){ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; }
+  items.forEach(it => find(it.id));
+  links.forEach(([a,b]) => union(a,b));
+
+  const clusters = {};
+  items.forEach(it => { const root = find(it.id); (clusters[root] = clusters[root]||[]).push(it); });
+  const clusterList = Object.values(clusters).sort((a,b) => b.length - a.length);
+
+  const pos = {};
+  const w=150, h=150, innerGap=6, clusterGap=70, rowWidth=1600;
+  let cx=OFFSET_X, cy=OFFSET_Y, rowMaxH=0;
+  clusterList.forEach(cluster => {
+    const cols = Math.max(1, Math.ceil(Math.sqrt(cluster.length)));
+    const clusterW = cols*(w+innerGap);
+    if(cx + clusterW > OFFSET_X + rowWidth){ cx = OFFSET_X; cy += rowMaxH + clusterGap; rowMaxH = 0; }
+    cluster.forEach((it,i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      pos[keyOf(it)] = {x: cx+col*(w+innerGap), y: cy+row*(h+innerGap), w, h};
+    });
+    const clusterH = Math.ceil(cluster.length/cols)*(h+innerGap);
+    rowMaxH = Math.max(rowMaxH, clusterH);
+    cx += clusterW + clusterGap;
+  });
+  return pos;
+}
+
+function computeKeyword(){
+  const groups = {};
+  items.forEach(it => {
+    const tag = (it.tags && it.tags[0]) || 'untagged';
+    (groups[tag] = groups[tag]||[]).push(it);
+  });
+  const pos = {};
+  const w=150, h=150, gap=8, rowGap=70, rowCols=8;
+  let gy = OFFSET_Y;
+  Object.keys(groups).sort().forEach(tag => {
+    const list = groups[tag];
+    list.forEach((it,i) => {
+      const col = i % rowCols, row = Math.floor(i / rowCols);
+      pos[keyOf(it)] = {x: OFFSET_X + col*(w+gap), y: gy + 30 + row*(h+gap), w, h};
+    });
+    const groupRows = Math.ceil(list.length / rowCols);
+    const groupH = groupRows*(h+gap);
+    pos['__label__'+tag] = {x: OFFSET_X, y: gy, label: '#'+tag};
+    gy += groupH + rowGap;
+  });
+  return pos;
+}
+
+function computeFor(m){
+  if(m === 'connected') return computeConnected();
+  if(m === 'keyword') return computeKeyword();
+  return computeChrono();
+}
+
+function defaultPos(i){
+  return gridPos(i, 6, 220, 220, 20);
+}
+
+function render(){
+  canvas.querySelectorAll('.card, .glabel').forEach(c => c.remove());
+  viewport.classList.toggle('feed-mode', mode === 'feed');
+
+  const sortedItems = (mode === 'feed') 
+    ? [...items].sort((a,b) => b.id.localeCompare(a.id))
+    : items;
+
+  const ideal = (mode !== 'feed') ? computeFor(mode) : {};
+  if(mode !== 'feed' && (!layout[mode] || Object.keys(layout[mode]).length === 0)){
+    layout[mode] = ideal;
+  }
+  const store = layout[mode] || {};
+  const byId = {};
+
+  const frag = document.createDocumentFragment();
+
+  if(mode !== 'feed'){
+    Object.entries(store).forEach(([k, p]) => {
+      if(k.startsWith('__label__')){
+        const l = document.createElement('div');
+        l.className = 'glabel';
+        l.style.left = p.x + 'px'; l.style.top = p.y + 'px';
+        l.textContent = p.label;
+        frag.appendChild(l);
+      }
+    });
+  }
+
+  sortedItems.forEach((item, i) => {
+    const key = keyOf(item);
+    byId[item.id] = key;
+
+    const el = document.createElement('div');
+    el.className = 'card' + (item.type === 'text' ? ' text' : '');
+    el.dataset.key = key;
+
+    if(mode !== 'feed'){
+      const pos = store[key] || ideal[key] || defaultPos(i);
+      store[key] = pos;
+      el.style.left = pos.x + 'px';
+      el.style.top = pos.y + 'px';
+      el.style.width = pos.w + 'px';
+      el.style.height = pos.h + 'px';
+    }
+
+    const tagsString = (item.tags && item.tags.length) ? item.tags.map(t=>'#'+t).join(' ') : '';
+
+    if(item.type === 'image'){
+      el.innerHTML = `<img src="${item.src}" loading="lazy" draggable="false"><div class="cap"><span>${escapeHtml(item.title)}</span><span>${escapeHtml(tagsString)}</span></div>`;
+    } else if(item.type === 'video'){
+      el.innerHTML = `<video src="${item.src}" muted loop playsinline draggable="false" onmouseover="this.play()" onmouseout="this.pause()"></video><div class="cap"><span>${escapeHtml(item.title)}</span><span>${escapeHtml(tagsString)}</span></div>`;
+    } else if(item.type === 'pdf'){
+      el.innerHTML = `<object data="${item.src}" type="application/pdf"><p>PDF</p></object><div class="cap"><span>${escapeHtml(item.title)}</span><span>${escapeHtml(tagsString)}</span></div>`;
+    } else {
+      if(!item._parsed) item._parsed = parseOrgNote(item.snippet, item.title);
+      const parsed = item._parsed;
+      const bottomTagText = parsed.tags.length ? parsed.tags.map(t=>'#'+t).join(' ') : tagsString;
+      const bottomDateText = parsed.date || item.id;
+      el.innerHTML = `<div class="snippet">${parsed.html}</div><div class="cap"><span>${escapeHtml(bottomTagText)}</span><span>${escapeHtml(bottomDateText)}</span></div>`;
+    }
+    const rs = document.createElement('div');
+    rs.className = 'resize';
+    el.appendChild(rs);
+
+    el.addEventListener('dragstart', e => e.preventDefault());
+    el.addEventListener('dblclick', () => openLightbox(item));
+    el.addEventListener('click', () => { if(mode === 'feed') openLightbox(item); });
+    el.addEventListener('mouseenter', () => highlightRelated(item));
+    el.addEventListener('mouseleave', clearHighlight);
+    
+    if(mode !== 'feed'){
+      makeDraggable(el, rs);
+    }
+    frag.appendChild(el);
+    cardEls[key] = el;
+  });
+
+  canvas.appendChild(frag);
+  window._byId = byId;
+  adjustCanvasToFitAll();
+  filterCards();
+}
+
+function centerOnElement(el){
+  if(!el || mode === 'feed') return;
+  const vw = viewport.clientWidth;
+  const vh = viewport.clientHeight;
+
+  const cardX = el.offsetLeft + (el.offsetWidth / 2);
+  const cardY = el.offsetTop + (el.offsetHeight / 2);
+
+  pan.x = (vw / 2) - (cardX * pan.scale);
+  pan.y = (vh / 2) - (cardY * pan.scale);
+  applyPan();
+}
+
+function filterCards(){
+  const q = document.getElementById('search').value.trim();
+  let re = null;
+  if(q){
+    try { re = new RegExp(q, 'i'); } catch(e) { re = null; }
+  }
+
+  let firstMatchEl = null;
+
+  items.forEach(item => {
+    const key = keyOf(item);
+    const el = cardEls[key];
+    if(!el) return;
+    if(!q){
+      el.style.display = '';
+      return;
+    }
+    const textToMatch = `${item.title} ${(item.tags||[]).join(' ')} ${item.snippet||''}`;
+    const matches = re ? re.test(textToMatch) : textToMatch.toLowerCase().includes(q.toLowerCase());
+    el.style.display = matches ? '' : 'none';
+    if(matches && !firstMatchEl) firstMatchEl = el;
+  });
+
+  if(q && firstMatchEl){
+    centerOnElement(firstMatchEl);
+  }
+}
+
+let _searchDebounce = null;
+document.getElementById('search').addEventListener('input', () => {
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(filterCards, 80);
+});
+
+function highlightRelated(item){
+  const related = new Set();
+  (item.tags || []).forEach(t => {
+    items.forEach(it => { if(it.id !== item.id && (it.tags || []).includes(t)) related.add(it.id); });
+  });
+  links.forEach(([a, b]) => {
+    if(a === item.id) related.add(b);
+    else if(b === item.id) related.add(a);
+  });
+  related.forEach(id => {
+    const el = cardEls[window._byId[id]];
+    if(el) el.classList.add('related');
+  });
+}
+function clearHighlight(){
+  document.querySelectorAll('.card.related').forEach(el => el.classList.remove('related'));
+}
+
+async function openLightbox(item){
+  const inner = document.getElementById('lb-inner');
+  let body = '';
+  if(item.type === 'image'){
+    body = `<img src="${item.src}">`;
+  } else if(item.type === 'video'){
+    body = `<video src="${item.src}" controls autoplay></video>`;
+  } else if(item.type === 'pdf'){
+    body = `<object data="${item.src}" type="application/pdf"></object>`;
+  } else {
+    body = `<div id="lb-text">loading…</div>`;
+  }
+  
+  const tagList = (item.tags||[]).map(t => '#'+t).join(' ');
+  inner.innerHTML = body + `<div id="lb-cap"><span>${escapeHtml(tagList)}</span><span>${escapeHtml(item.id)}</span></div>`;
+  document.getElementById('lightbox').classList.add('open');
+  
+  if(item.type === 'text'){
+    try {
+      const txt = await fetch(item.src).then(r => r.text());
+      const el = document.getElementById('lb-text');
+      if(el){
+        const parsed = parseOrgNote(txt, item.title);
+        el.innerHTML = parsed.html;
+      }
+    } catch(e) {
+      const el = document.getElementById('lb-text');
+      if(el){
+        const parsed = parseOrgNote(item.snippet, item.title);
+        el.innerHTML = parsed.html;
+      }
+    }
+  }
+}
+document.getElementById('lb-close').onclick = closeLightbox;
+document.getElementById('lightbox').addEventListener('click', e => {
+  if(e.target.id === 'lightbox') closeLightbox();
+});
+window.addEventListener('keydown', e => { if(e.key === 'Escape'){ closeLightbox(); setSelected([]); } });
+function closeLightbox(){ document.getElementById('lightbox').classList.remove('open'); }
+
+function escapeHtml(s){
+  return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function makeDraggable(el, resizeHandle){
+  let dragMode = null, start = {}, groupStart = {};
+  el.addEventListener('mousedown', e => {
+    if(mode === 'feed') return;
+    if(e.target.tagName === 'A') return;
+    const key = el.dataset.key;
+
+    if(e.target !== resizeHandle && (e.shiftKey || e.ctrlKey || e.metaKey)){
+      toggleSelected(key);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if(e.target === resizeHandle){
+      dragMode = 'resize';
+      start = {x:e.clientX, y:e.clientY, w:el.offsetWidth, h:el.offsetHeight};
+    } else {
+      dragMode = 'move';
+      if(!selected.has(key)) setSelected([key]);
+      start = {x:e.clientX, y:e.clientY};
+      groupStart = {};
+      selected.forEach(k => {
+        const gEl = cardEls[k];
+        if(gEl) groupStart[k] = {left: gEl.offsetLeft, top: gEl.offsetTop};
+      });
+      el.classList.add('dragging');
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const onMove = ev => {
+      const dx = (ev.clientX - start.x) / pan.scale;
+      const dy = (ev.clientY - start.y) / pan.scale;
+
+      if(dragMode === 'move'){
+        let minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity;
+        Object.entries(groupStart).forEach(([k, pos]) => {
+          const gEl = cardEls[k];
+          if(!gEl) return;
+          const newLeft = pos.left + dx, newTop = pos.top + dy;
+          gEl.style.left = newLeft + 'px';
+          gEl.style.top = newTop + 'px';
+          minL = Math.min(minL, newLeft); minT = Math.min(minT, newTop);
+          maxR = Math.max(maxR, newLeft + gEl.offsetWidth);
+          maxB = Math.max(maxB, newTop + gEl.offsetHeight);
+        });
+        ensureCanvasBounds(minL, minT, maxR, maxB);
+      } else {
+        const newW = Math.max(80, start.w + dx);
+        const newH = Math.max(80, start.h + dy);
+        el.style.width = newW + 'px';
+        el.style.height = newH + 'px';
+        ensureCanvasBounds(el.offsetLeft, el.offsetTop, el.offsetLeft + newW, el.offsetTop + newH);
+      }
+    };
+    const onUp = () => {
+      el.classList.remove('dragging');
+      if(dragMode === 'move'){
+        selected.forEach(k => {
+          const gEl = cardEls[k];
+          if(!gEl) return;
+          layout[mode][k] = {x: gEl.offsetLeft, y: gEl.offsetTop, w: gEl.offsetWidth, h: gEl.offsetHeight};
+        });
+      } else {
+        layout[mode][key] = {x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight};
+      }
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// Pan canvas on drag
+let panning = false, panStart = {};
+viewport.addEventListener('mousedown', e => {
+  if(mode === 'feed') return;
+  if(e.target !== viewport && e.target !== canvas) return;
+  if(!e.shiftKey && !e.ctrlKey && !e.metaKey) setSelected([]);
+  panning = true;
+  canvas.classList.add('panning');
+  viewport.classList.add('grabbing');
+  panStart = {x:e.clientX - pan.x, y:e.clientY - pan.y};
+});
+window.addEventListener('mousemove', e => {
+  if(mode === 'feed' || !panning) return;
+  pan.x = e.clientX - panStart.x;
+  pan.y = e.clientY - panStart.y;
+  applyPan();
+});
+window.addEventListener('mouseup', () => { 
+  panning = false; 
+  canvas.classList.remove('panning');
+  viewport.classList.remove('grabbing'); 
+});
+
+// Scroll = Pan canvas | Ctrl + Scroll = Zoom canvas
+viewport.addEventListener('wheel', e => {
+  if(mode === 'feed') return;
+  e.preventDefault();
+
+  canvas.classList.add('panning');
+
+  if(e.ctrlKey || e.metaKey){
+    const delta = -e.deltaY * 0.0015;
+    const oldScale = pan.scale;
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale + delta));
+    
+    const rect = viewport.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    pan.x = mouseX - (mouseX - pan.x) * (newScale / oldScale);
+    pan.y = mouseY - (mouseY - pan.y) * (newScale / oldScale);
+    pan.scale = newScale;
+  } else {
+    pan.x -= e.deltaX;
+    pan.y -= e.deltaY;
+  }
+  applyPan();
+  
+  clearTimeout(window._wheelPanTimeout);
+  window._wheelPanTimeout = setTimeout(() => {
+    canvas.classList.remove('panning');
+  }, 100);
+}, {passive:false});
+
+document.getElementById('reset').onclick = () => { 
+  if(mode === 'feed'){ viewport.scrollTop = 0; }
+  else { pan = {x: -OFFSET_X + 100, y: -OFFSET_Y + 100, scale: 1}; applyPan(); }
+};
+document.querySelectorAll('.viewbtn').forEach(btn => {
+  btn.onclick = () => {
+    mode = btn.dataset.mode;
+    setSelected([]);
+    document.querySelectorAll('.viewbtn').forEach(b => b.classList.toggle('active', b === btn));
+    pan = {x: -OFFSET_X + 100, y: -OFFSET_Y + 100, scale: 1}; applyPan();
+    render();
+  };
+});
+document.getElementById('rearrange').onclick = () => {
+  if(mode !== 'feed'){
+    layout[mode] = {};
+    render();
+  }
+};
+document.getElementById('save').onclick = async () => {
+  await fetch('/api/layout', {method:'POST', body: JSON.stringify(layout)});
+  const btn = document.getElementById('save');
+  btn.textContent = 'saved ✓';
+  setTimeout(()=>btn.textContent='save layout', 1200);
+};
+
+document.querySelector('[data-mode="chrono"]').classList.add('active');
+
+let lastMtime = null;
+async function checkForUpdates(){
+  try{
+    const s = await fetch('/api/stat').then(r => r.json());
+    if(lastMtime !== null && s.mtime !== lastMtime) await load();
+    lastMtime = s.mtime;
+  }catch(e){ }
+}
+setInterval(checkForUpdates, 15000);
+
+load();
+</script>
+</body>
+</html>
