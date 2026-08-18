@@ -6,8 +6,7 @@ spatial canvas of images, pdfs, videos, and notes, opened in your browser.
 
 The only external dependency is `python3`.
 
-
-<img width="1912" height="943" alt="spatial" src="https://github.com/user-attachments/assets/f1a46d8d-e92e-4c20-807c-f9d1feda31b5" />
+<img width="1387" height="834" alt="dnsc" src="https://github.com/user-attachments/assets/07a6ee76-bb83-4cb3-bde9-37ee7ec5a3a6" />
 
 
 
