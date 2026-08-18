@@ -162,7 +162,7 @@
 <div id="topbar">
   <b>denote-spatial</b>
   <span id="count"></span>
-  <input type="text" id="search" placeholder="Search / Regex..." />
+  <input type="text" id="search" placeholder="Search / Regex / #tag..." />
   <span style="flex:1"></span>
   <button id="reset">reset view</button>
   <button class="viewbtn" data-mode="chrono">grid</button>
@@ -528,8 +528,15 @@ function centerOnElement(el){
 
 function filterCards(){
   const q = document.getElementById('search').value.trim();
+
+  // #tag or #tag1,#tag2 -> match items having ALL listed tags (exact, case-insensitive)
+  let tagQuery = null;
+  if(q.startsWith('#')){
+    tagQuery = q.slice(1).split(/[,\s]+/).map(t => t.trim().toLowerCase()).filter(Boolean);
+  }
+
   let re = null;
-  if(q){
+  if(q && !tagQuery){
     try { re = new RegExp(q, 'i'); } catch(e) { re = null; }
   }
 
@@ -543,8 +550,14 @@ function filterCards(){
       el.style.display = '';
       return;
     }
-    const textToMatch = `${item.title} ${(item.tags||[]).join(' ')} ${item.snippet||''}`;
-    const matches = re ? re.test(textToMatch) : textToMatch.toLowerCase().includes(q.toLowerCase());
+    let matches;
+    if(tagQuery){
+      const itemTags = (item.tags||[]).map(t => t.toLowerCase());
+      matches = tagQuery.length > 0 && tagQuery.every(t => itemTags.includes(t));
+    } else {
+      const textToMatch = `${item.title} ${(item.tags||[]).join(' ')} ${item.snippet||''}`;
+      matches = re ? re.test(textToMatch) : textToMatch.toLowerCase().includes(q.toLowerCase());
+    }
     el.style.display = matches ? '' : 'none';
     if(matches && !firstMatchEl) firstMatchEl = el;
   });
