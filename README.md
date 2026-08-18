@@ -20,6 +20,7 @@ The only external dependency is `python3`.
 - Images, videos, and pdfs supported
 - Search / regex filter
 - Layout is saved locally, notes are never modified
+- Ctrl + wheel to zoom in/out
 
 ## Setup
 
